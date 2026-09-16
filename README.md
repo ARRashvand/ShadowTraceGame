@@ -8,7 +8,7 @@ The project is currently in active prototyping. It is not yet a complete game or
 
 ## Current prototype
 
-Version `0.2.0` currently includes:
+Version `0.3.0` currently includes:
 
 - Native Android rendering with a fixed top-down 2D arena
 - Drag-anywhere virtual joystick controls
@@ -16,10 +16,13 @@ Version `0.2.0` currently includes:
 - A 12-second gameplay loop
 - Recording the player's first route
 - Replaying the recorded route as a synchronized ghost
+- A pressure switch controlled by either the player or ghost
+- A physical door that opens while the switch is held
+- A complete one-ghost puzzle with success and restart states
 - Responsive scaling for different portrait phone screens
 - ARM64 Android packaging
 
-The ghost is currently visual only. Switches, doors, hazards, multiple ghosts, level completion, audio, and progression will be introduced incrementally.
+The first ghost can now affect the environment. Hazards, multiple ghosts, additional levels, audio, and progression will be introduced incrementally.
 
 ## Core concept
 
@@ -90,9 +93,9 @@ Build outputs and APK files are intentionally excluded from source control.
 - [x] Player movement and wall collision
 - [x] Timed route recording
 - [x] First ghost playback
-- [ ] Pressure switches and controlled doors
+- [x] Pressure switches and controlled doors
 - [ ] Multiple simultaneous ghosts
-- [ ] First complete puzzle level
+- [x] First complete puzzle level
 - [ ] Hazards and reset feedback
 - [ ] Sound effects, music, and haptics
 - [ ] Level selection and saved progress

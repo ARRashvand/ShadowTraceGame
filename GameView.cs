@@ -15,10 +15,16 @@ public sealed class GameView : View
     private const float LoopDuration = 12f;
     private const float StartX = WorldWidth / 2f;
     private const float StartY = 1630f;
+    private const float SwitchX = 250f;
+    private const float SwitchY = 1390f;
+    private const float SwitchRadius = 62f;
 
     private readonly Paint _paint = new(PaintFlags.AntiAlias);
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly RectF _room = new(60f, 215f, 1020f, 1770f);
+    private readonly RectF _door = new(420f, 985f, 660f, 1035f);
+    private readonly RectF _goal = new(430f, 300f, 650f, 425f);
+    private readonly RectF _restartButton = new(890f, 35f, 1040f, 105f);
     private readonly List<RectF> _walls = [];
     private readonly List<PathSample> _recordedPath = [];
 
@@ -35,6 +41,9 @@ public sealed class GameView : View
     private bool _touching;
     private bool _loopRunning;
     private bool _firstRecordingComplete;
+    private bool _switchActive;
+    private bool _doorOpen;
+    private bool _levelComplete;
     private float _loopElapsed;
     private int _ghostPlaybackIndex;
     private long _lastFrameMs;
@@ -95,6 +104,7 @@ public sealed class GameView : View
         DrawGhost(canvas);
         DrawPlayer(canvas);
         DrawJoystick(canvas, scale, offsetX, offsetY);
+        DrawCompletionOverlay(canvas);
 
         canvas.Restore();
         PostInvalidateOnAnimation();
@@ -112,10 +122,15 @@ public sealed class GameView : View
 
     private void UpdateGame(float deltaSeconds)
     {
-        if (deltaSeconds <= 0f || !_loopRunning)
+        if (deltaSeconds <= 0f || !_loopRunning || _levelComplete)
             return;
 
         _loopElapsed = Math.Min(_loopElapsed + deltaSeconds, LoopDuration);
+
+        if (_firstRecordingComplete)
+            UpdateGhostPosition(_loopElapsed);
+
+        UpdateMechanisms();
 
         var nextX = _playerX + _inputX * PlayerSpeed * deltaSeconds;
         var nextY = _playerY + _inputY * PlayerSpeed * deltaSeconds;
@@ -126,10 +141,16 @@ public sealed class GameView : View
         if (CanStandAt(_playerX, nextY))
             _playerY = nextY;
 
-        if (_firstRecordingComplete)
-            UpdateGhostPosition(_loopElapsed);
-        else
+        UpdateMechanisms();
+
+        if (!_firstRecordingComplete)
             _recordedPath.Add(new PathSample(_loopElapsed, _playerX, _playerY));
+
+        if (_firstRecordingComplete && _goal.Contains(_playerX, _playerY))
+        {
+            CompleteLevel();
+            return;
+        }
 
         if (_loopElapsed >= LoopDuration)
             FinishLoop();
@@ -137,6 +158,9 @@ public sealed class GameView : View
 
     private void StartLoop()
     {
+        if (_levelComplete)
+            return;
+
         _loopRunning = true;
         _loopElapsed = 0f;
         _ghostPlaybackIndex = 0;
@@ -170,6 +194,62 @@ public sealed class GameView : View
         _inputX = 0f;
         _inputY = 0f;
         _touching = false;
+        UpdateMechanisms();
+    }
+
+    private void ResetLevel()
+    {
+        _recordedPath.Clear();
+        _playerX = StartX;
+        _playerY = StartY;
+        _ghostX = StartX;
+        _ghostY = StartY;
+        _inputX = 0f;
+        _inputY = 0f;
+        _loopElapsed = 0f;
+        _ghostPlaybackIndex = 0;
+        _firstRecordingComplete = false;
+        _switchActive = false;
+        _doorOpen = false;
+        _levelComplete = false;
+        _loopRunning = false;
+        _touching = false;
+    }
+
+    private void CompleteLevel()
+    {
+        _levelComplete = true;
+        _loopRunning = false;
+        _touching = false;
+        _inputX = 0f;
+        _inputY = 0f;
+    }
+
+    private void UpdateMechanisms()
+    {
+        var playerOnSwitch = IsOnSwitch(_playerX, _playerY);
+        var ghostOnSwitch = _firstRecordingComplete && IsOnSwitch(_ghostX, _ghostY);
+        _switchActive = playerOnSwitch || ghostOnSwitch;
+
+        // Keep the door open until the player has completely passed through it.
+        _doorOpen = _switchActive || CircleIntersectsRect(_playerX, _playerY, PlayerRadius, _door);
+    }
+
+    private static bool IsOnSwitch(float x, float y)
+    {
+        var dx = x - SwitchX;
+        var dy = y - SwitchY;
+        var activationRadius = SwitchRadius - 8f;
+        return dx * dx + dy * dy <= activationRadius * activationRadius;
+    }
+
+    private static bool CircleIntersectsRect(float x, float y, float radius, RectF rect)
+    {
+        var closestX = Math.Clamp(x, rect.Left, rect.Right);
+        var closestY = Math.Clamp(y, rect.Top, rect.Bottom);
+        var dx = x - closestX;
+        var dy = y - closestY;
+        return dx * dx + dy * dy < radius * radius;
     }
 
     private void UpdateGhostPosition(float time)
@@ -212,7 +292,10 @@ public sealed class GameView : View
             x + PlayerRadius,
             y + PlayerRadius);
 
-        return !_walls.Any(wall => RectF.Intersects(playerBounds, wall));
+        if (_walls.Any(wall => RectF.Intersects(playerBounds, wall)))
+            return false;
+
+        return _doorOpen || !RectF.Intersects(playerBounds, _door);
     }
 
     private void DrawBackground(Canvas canvas)
@@ -229,10 +312,18 @@ public sealed class GameView : View
         _paint.SetTypeface(Typeface.Default);
         _paint.TextSize = 29f;
         _paint.Color = Color.Rgb(139, 154, 190);
-        var status = !_firstRecordingComplete
-            ? (_loopRunning ? "دور اول — در حال ضبط مسیر" : "حرکت کن تا دور اول شروع شود")
-            : (_loopRunning ? "دور دوم — سایه‌ات برگشته" : "حرکت کن تا سایه شروع شود");
+        var status = _levelComplete
+            ? "مرحله کامل شد"
+            : !_firstRecordingComplete
+                ? (_loopRunning ? "دور اول — کلید قرمز را نگه دار" : "حرکت کن تا دور اول شروع شود")
+                : (_loopRunning ? "دور دوم — از دروازه عبور کن" : "حرکت کن تا سایه شروع شود");
         canvas.DrawText(status, WorldWidth / 2f, 108f, _paint);
+
+        _paint.Color = Color.Rgb(35, 45, 69);
+        canvas.DrawRoundRect(_restartButton, 22f, 22f, _paint);
+        _paint.TextSize = 24f;
+        _paint.Color = Color.Rgb(210, 220, 242);
+        canvas.DrawText("از نو", _restartButton.CenterX(), 80f, _paint);
 
         var progress = _loopRunning ? _loopElapsed / LoopDuration : 0f;
         _paint.Color = Color.Rgb(35, 45, 69);
@@ -274,12 +365,52 @@ public sealed class GameView : View
             canvas.DrawRoundRect(wall, 12f, 12f, _paint);
         }
 
+        DrawSwitchAndDoor(canvas);
+
+        _paint.Color = Color.Argb(45, 95, 226, 190);
+        canvas.DrawRoundRect(_goal, 24f, 24f, _paint);
+        _paint.SetStyle(Paint.Style.Stroke);
+        _paint.StrokeWidth = 6f;
         _paint.Color = Color.Rgb(95, 226, 190);
-        canvas.DrawRoundRect(new RectF(430f, 217f, 650f, 243f), 13f, 13f, _paint);
+        canvas.DrawRoundRect(_goal, 24f, 24f, _paint);
+        _paint.SetStyle(Paint.Style.Fill);
         _paint.TextAlign = Paint.Align.Center;
         _paint.TextSize = 27f;
         _paint.Color = Color.Rgb(95, 226, 190);
-        canvas.DrawText("خروجی آینده", WorldWidth / 2f, 290f, _paint);
+        canvas.DrawText("خروج", WorldWidth / 2f, 375f, _paint);
+    }
+
+    private void DrawSwitchAndDoor(Canvas canvas)
+    {
+        _paint.StrokeWidth = 7f;
+        _paint.Color = _switchActive
+            ? Color.Argb(150, 255, 82, 105)
+            : Color.Argb(55, 255, 82, 105);
+        canvas.DrawLine(SwitchX, SwitchY, SwitchX, _door.Bottom, _paint);
+        canvas.DrawLine(SwitchX, _door.Bottom, _door.Left, _door.Bottom, _paint);
+
+        _paint.Color = _switchActive
+            ? Color.Rgb(255, 82, 105)
+            : Color.Rgb(91, 56, 70);
+        canvas.DrawCircle(SwitchX, SwitchY, SwitchRadius, _paint);
+        _paint.Color = _switchActive
+            ? Color.Rgb(255, 180, 190)
+            : Color.Rgb(150, 85, 100);
+        canvas.DrawCircle(SwitchX, SwitchY, SwitchRadius - 18f, _paint);
+
+        if (_doorOpen)
+        {
+            _paint.Color = Color.Argb(65, 255, 82, 105);
+            canvas.DrawRoundRect(_door, 14f, 14f, _paint);
+        }
+        else
+        {
+            _paint.Color = Color.Rgb(222, 63, 87);
+            canvas.DrawRoundRect(_door, 14f, 14f, _paint);
+            _paint.Color = Color.Rgb(255, 142, 156);
+            for (var x = _door.Left + 28f; x < _door.Right; x += 48f)
+                canvas.DrawRect(x, _door.Top + 5f, x + 12f, _door.Bottom - 5f, _paint);
+        }
     }
 
     private void DrawGhost(Canvas canvas)
@@ -307,7 +438,7 @@ public sealed class GameView : View
 
     private void DrawJoystick(Canvas canvas, float scale, float offsetX, float offsetY)
     {
-        if (!_touching)
+        if (!_touching || _levelComplete)
             return;
 
         var startX = (_touchStartX - offsetX) / scale;
@@ -330,6 +461,26 @@ public sealed class GameView : View
         canvas.DrawCircle(knobX, knobY, 48f, _paint);
     }
 
+    private void DrawCompletionOverlay(Canvas canvas)
+    {
+        if (!_levelComplete)
+            return;
+
+        _paint.Color = Color.Argb(190, 7, 10, 20);
+        canvas.DrawRoundRect(new RectF(120f, 680f, 960f, 1180f), 42f, 42f, _paint);
+        _paint.TextAlign = Paint.Align.Center;
+        _paint.SetTypeface(Typeface.Create(Typeface.Default, TypefaceStyle.Bold));
+        _paint.TextSize = 54f;
+        _paint.Color = Color.Rgb(95, 226, 190);
+        canvas.DrawText("مرحله کامل شد", WorldWidth / 2f, 850f, _paint);
+
+        _paint.SetTypeface(Typeface.Default);
+        _paint.TextSize = 30f;
+        _paint.Color = Color.Rgb(215, 225, 245);
+        canvas.DrawText("سایه‌ات دروازه را برایت باز کرد", WorldWidth / 2f, 930f, _paint);
+        canvas.DrawText("برای تکرار، دکمه «از نو» را بزن", WorldWidth / 2f, 990f, _paint);
+    }
+
     public override bool OnTouchEvent(MotionEvent? e)
     {
         if (e is null)
@@ -338,6 +489,16 @@ public sealed class GameView : View
         switch (e.ActionMasked)
         {
             case MotionEventActions.Down:
+                var worldPoint = ScreenToWorld(e.GetX(), e.GetY());
+                if (_restartButton.Contains(worldPoint.X, worldPoint.Y))
+                {
+                    ResetLevel();
+                    return true;
+                }
+
+                if (_levelComplete)
+                    return true;
+
                 _touching = true;
                 _touchStartX = _touchX = e.GetX();
                 _touchStartY = _touchY = e.GetY();
@@ -382,6 +543,17 @@ public sealed class GameView : View
 
         if (!_loopRunning)
             StartLoop();
+    }
+
+    private PointF ScreenToWorld(float screenX, float screenY)
+    {
+        var scale = Math.Min(Width / WorldWidth, Height / WorldHeight);
+        if (scale <= 0f)
+            return new PointF(-1f, -1f);
+
+        var offsetX = (Width - WorldWidth * scale) / 2f;
+        var offsetY = (Height - WorldHeight * scale) / 2f;
+        return new PointF((screenX - offsetX) / scale, (screenY - offsetY) / scale);
     }
 
     private readonly record struct PathSample(float Time, float X, float Y);
