@@ -1,0 +1,28 @@
+# Build outputs
+bin/
+obj/
+artifacts/
+
+# IDE and local machine files
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+local.properties
+
+# Android packages and signing secrets
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+*.swp
+
+# Operating system files
+.DS_Store
+Thumbs.db
