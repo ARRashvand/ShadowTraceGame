@@ -8,7 +8,7 @@ The project is currently in active prototyping. It is not yet a complete game or
 
 ## Current prototype
 
-Version `0.4.0` currently includes:
+Version `0.5.0` currently includes:
 
 - Native Android rendering with a fixed top-down 2D arena
 - Drag-anywhere virtual joystick controls
@@ -20,6 +20,7 @@ Version `0.4.0` currently includes:
 - A physical door that opens while the switch is held
 - A complete one-ghost puzzle with success and restart states
 - A persistent exit door with guidance cues and an animated victory sequence
+- A first-run tutorial and an in-game feedback sharing shortcut for private playtests
 - Responsive scaling for different portrait phone screens
 - ARM64 Android packaging
 
@@ -88,6 +89,10 @@ Build outputs and APK files are intentionally excluded from source control.
 - Release your finger to stop.
 - The timer begins with the player's first movement.
 - After the first 12-second loop, move again to start playback of the recorded ghost.
+
+## Private playtest
+
+The current build is intended for a small, private group of Android testers. Complete the first puzzle, then use **ارسال نظر** on the completion screen to share feedback through any installed messaging app. The feedback prompt asks about clarity, controls, the time-loop idea, confusion points, and desired changes. No analytics, account, or network service is built into the game.
 
 ## Roadmap
 

@@ -19,18 +19,21 @@ public sealed class GameView : View
     private const float SwitchY = 1390f;
     private const float SwitchRadius = 62f;
     private const float ExitSequenceDuration = 1.65f;
+    private const float IntroDuration = 0.72f;
 
     private readonly Paint _paint = new(PaintFlags.AntiAlias);
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly RectF _room = new(60f, 215f, 1020f, 1770f);
     private readonly RectF _door = new(420f, 985f, 660f, 1035f);
-    private readonly RectF _goal = new(420f, 285f, 660f, 425f);
-    private readonly RectF _exitDoor = new(385f, 217f, 695f, 445f);
+    private readonly RectF _goal = new(430f, 275f, 650f, 400f);
+    private readonly RectF _exitDoor = new(420f, 217f, 660f, 365f);
     private readonly RectF _restartButton = new(890f, 35f, 1040f, 105f);
-    private readonly RectF _replayButton = new(250f, 1030f, 830f, 1110f);
-    private readonly RectF _nextLevelButton = new(250f, 1130f, 830f, 1210f);
+    private readonly RectF _feedbackButton = new(250f, 970f, 830f, 1050f);
+    private readonly RectF _replayButton = new(250f, 1070f, 830f, 1150f);
+    private readonly RectF _nextLevelButton = new(250f, 1170f, 830f, 1250f);
     private readonly List<RectF> _walls = [];
     private readonly List<PathSample> _recordedPath = [];
+    private readonly Context _context;
 
     private float _playerX = StartX;
     private float _playerY = StartY;
@@ -50,8 +53,11 @@ public sealed class GameView : View
     private bool _levelComplete;
     private bool _exitSequenceActive;
     private bool _exitHapticTriggered;
+    private bool _introComplete;
+    private bool _tutorialVisible;
     private float _loopElapsed;
     private float _exitSequenceElapsed;
+    private float _introElapsed;
     private float _exitStartX;
     private float _exitStartY;
     private int _ghostPlaybackIndex;
@@ -60,6 +66,10 @@ public sealed class GameView : View
 
     public GameView(Context context) : base(context)
     {
+        _context = context;
+        _tutorialVisible = context
+            .GetSharedPreferences("shadow_trace", FileCreationMode.Private)?
+            .GetBoolean("tutorial_seen", false) != true;
         SetBackgroundColor(Color.Rgb(10, 13, 24));
         KeepScreenOn = true;
 
@@ -108,6 +118,14 @@ public sealed class GameView : View
         canvas.Translate(offsetX, offsetY);
         canvas.Scale(scale, scale);
 
+        if (!_introComplete)
+        {
+            DrawIntro(canvas);
+            canvas.Restore();
+            PostInvalidateOnAnimation();
+            return;
+        }
+
         DrawBackground(canvas);
         DrawRoom(canvas);
         DrawGhost(canvas);
@@ -116,6 +134,7 @@ public sealed class GameView : View
         DrawJoystick(canvas, scale, offsetX, offsetY);
         DrawExitFlash(canvas);
         DrawCompletionOverlay(canvas);
+        DrawTutorialOverlay(canvas);
 
         canvas.Restore();
         PostInvalidateOnAnimation();
@@ -133,7 +152,17 @@ public sealed class GameView : View
 
     private void UpdateGame(float deltaSeconds)
     {
-        if (deltaSeconds <= 0f || _levelComplete)
+        if (deltaSeconds <= 0f)
+            return;
+
+        if (!_introComplete)
+        {
+            _introElapsed += deltaSeconds;
+            _introComplete = _introElapsed >= IntroDuration;
+            return;
+        }
+
+        if (_levelComplete)
             return;
 
         if (_exitSequenceActive)
@@ -239,6 +268,31 @@ public sealed class GameView : View
         _exitStartY = StartY;
         _loopRunning = false;
         _touching = false;
+    }
+
+    private void DismissTutorial()
+    {
+        _tutorialVisible = false;
+        _context.GetSharedPreferences("shadow_trace", FileCreationMode.Private)?
+            .Edit()?
+            .PutBoolean("tutorial_seen", true)?
+            .Apply();
+    }
+
+    private void ShareFeedback()
+    {
+        var feedback =
+            "رد من — نسخه ۰.۵\n\n" +
+            "۱. آیا هدف بازی را سریع فهمیدی؟ چرا؟\n" +
+            "۲. کنترل حرکت را از ۱ تا ۵ چند می‌دهی؟\n" +
+            "۳. ایده همکاری با سایه گذشته‌ات جذاب بود؟\n" +
+            "۴. کجا گیج شدی یا گیر کردی؟\n" +
+            "۵. اگر یک چیز را تغییر دهی، چه خواهد بود؟";
+
+        var intent = new Intent(Intent.ActionSend);
+        intent.SetType("text/plain");
+        intent.PutExtra(Intent.ExtraText, feedback);
+        _context.StartActivity(Intent.CreateChooser(intent, "ارسال نظر درباره رد من"));
     }
 
     private void StartExitSequence()
@@ -397,6 +451,21 @@ public sealed class GameView : View
         canvas.DrawText($"{seconds:0}", WorldWidth / 2f, 164f, _paint);
     }
 
+    private void DrawIntro(Canvas canvas)
+    {
+        _paint.Color = Color.Rgb(10, 13, 24);
+        canvas.DrawRect(0f, 0f, WorldWidth, WorldHeight, _paint);
+        _paint.TextAlign = Paint.Align.Center;
+        _paint.SetTypeface(Typeface.Create(Typeface.Default, TypefaceStyle.Bold));
+        _paint.TextSize = 64f;
+        _paint.Color = Color.Rgb(95, 226, 190);
+        canvas.DrawText("رد من", WorldWidth / 2f, 880f, _paint);
+        _paint.SetTypeface(Typeface.Default);
+        _paint.TextSize = 31f;
+        _paint.Color = Color.Rgb(145, 167, 206);
+        canvas.DrawText("گذشته‌ات راه آینده را می‌سازد", WorldWidth / 2f, 950f, _paint);
+    }
+
     private void DrawRoom(Canvas canvas)
     {
         _paint.SetStyle(Paint.Style.Fill);
@@ -460,7 +529,7 @@ public sealed class GameView : View
         _paint.TextAlign = Paint.Align.Center;
         _paint.TextSize = 27f;
         _paint.Color = Color.Rgb(194, 255, 229);
-        canvas.DrawText("در خروج", WorldWidth / 2f, 420f, _paint);
+        canvas.DrawText("در خروج", WorldWidth / 2f, 345f, _paint);
     }
 
     private void DrawExitGuidance(Canvas canvas)
@@ -590,29 +659,62 @@ public sealed class GameView : View
             return;
 
         _paint.Color = Color.Argb(190, 7, 10, 20);
-        canvas.DrawRoundRect(new RectF(120f, 650f, 960f, 1260f), 42f, 42f, _paint);
+        canvas.DrawRoundRect(new RectF(120f, 610f, 960f, 1300f), 42f, 42f, _paint);
         _paint.TextAlign = Paint.Align.Center;
         _paint.SetTypeface(Typeface.Create(Typeface.Default, TypefaceStyle.Bold));
         _paint.TextSize = 54f;
         _paint.Color = Color.Rgb(95, 226, 190);
-        canvas.DrawText("مرحله کامل شد", WorldWidth / 2f, 830f, _paint);
+        canvas.DrawText("مرحله کامل شد", WorldWidth / 2f, 780f, _paint);
 
         _paint.SetTypeface(Typeface.Default);
         _paint.TextSize = 30f;
         _paint.Color = Color.Rgb(215, 225, 245);
-        canvas.DrawText("سایه‌ات راه در خروج را باز کرد", WorldWidth / 2f, 910f, _paint);
+        canvas.DrawText("سایه‌ات راه در خروج را باز کرد", WorldWidth / 2f, 860f, _paint);
+
+        _paint.Color = Color.Rgb(77, 88, 128);
+        canvas.DrawRoundRect(_feedbackButton, 24f, 24f, _paint);
+        _paint.TextSize = 31f;
+        _paint.Color = Color.White;
+        canvas.DrawText("ارسال نظر", WorldWidth / 2f, 1022f, _paint);
 
         _paint.Color = Color.Rgb(55, 118, 108);
         canvas.DrawRoundRect(_replayButton, 24f, 24f, _paint);
         _paint.TextSize = 31f;
         _paint.Color = Color.White;
-        canvas.DrawText("تکرار مرحله", WorldWidth / 2f, 1082f, _paint);
+        canvas.DrawText("تکرار مرحله", WorldWidth / 2f, 1122f, _paint);
 
         _paint.Color = Color.Rgb(42, 50, 68);
         canvas.DrawRoundRect(_nextLevelButton, 24f, 24f, _paint);
         _paint.TextSize = 29f;
         _paint.Color = Color.Rgb(150, 160, 180);
-        canvas.DrawText("مرحله بعد — به‌زودی", WorldWidth / 2f, 1180f, _paint);
+        canvas.DrawText("مرحله بعد — به‌زودی", WorldWidth / 2f, 1222f, _paint);
+    }
+
+    private void DrawTutorialOverlay(Canvas canvas)
+    {
+        if (!_tutorialVisible)
+            return;
+
+        _paint.Color = Color.Argb(224, 7, 10, 20);
+        canvas.DrawRoundRect(new RectF(105f, 520f, 975f, 1260f), 44f, 44f, _paint);
+        _paint.TextAlign = Paint.Align.Center;
+        _paint.SetTypeface(Typeface.Create(Typeface.Default, TypefaceStyle.Bold));
+        _paint.TextSize = 50f;
+        _paint.Color = Color.Rgb(95, 226, 190);
+        canvas.DrawText("چگونه بازی کنیم؟", WorldWidth / 2f, 650f, _paint);
+
+        _paint.SetTypeface(Typeface.Default);
+        _paint.TextSize = 31f;
+        _paint.Color = Color.Rgb(226, 235, 250);
+        canvas.DrawText("۱. دور اول روی کلید قرمز بمان.", WorldWidth / 2f, 765f, _paint);
+        canvas.DrawText("۲. در دور دوم، سایه‌ات کلید را نگه می‌دارد.", WorldWidth / 2f, 840f, _paint);
+        canvas.DrawText("۳. از دروازه عبور کن و وارد در خروج شو.", WorldWidth / 2f, 915f, _paint);
+
+        _paint.Color = Color.Rgb(55, 118, 108);
+        canvas.DrawRoundRect(new RectF(265f, 1035f, 815f, 1130f), 26f, 26f, _paint);
+        _paint.TextSize = 34f;
+        _paint.Color = Color.White;
+        canvas.DrawText("برای شروع لمس کن", WorldWidth / 2f, 1098f, _paint);
     }
 
     private void DrawExitFlash(Canvas canvas)
@@ -637,7 +739,16 @@ public sealed class GameView : View
         switch (e.ActionMasked)
         {
             case MotionEventActions.Down:
+                if (!_introComplete)
+                    return true;
+
                 var worldPoint = ScreenToWorld(e.GetX(), e.GetY());
+                if (_tutorialVisible)
+                {
+                    DismissTutorial();
+                    return true;
+                }
+
                 if (_restartButton.Contains(worldPoint.X, worldPoint.Y))
                 {
                     ResetLevel();
@@ -646,6 +757,12 @@ public sealed class GameView : View
 
                 if (_levelComplete)
                 {
+                    if (_feedbackButton.Contains(worldPoint.X, worldPoint.Y))
+                    {
+                        ShareFeedback();
+                        return true;
+                    }
+
                     if (_replayButton.Contains(worldPoint.X, worldPoint.Y))
                         ResetLevel();
                     return true;

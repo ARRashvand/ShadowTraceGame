@@ -9,6 +9,7 @@ namespace ShadowTraceGame;
 [Activity(
     Label = "رد من",
     MainLauncher = true,
+    Icon = "@drawable/ic_shadow_trace",
     ScreenOrientation = ScreenOrientation.Portrait,
     Theme = "@android:style/Theme.Material.NoActionBar",
     ConfigurationChanges = ConfigChanges.Orientation
