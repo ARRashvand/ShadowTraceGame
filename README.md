@@ -8,7 +8,7 @@ The project is currently in active prototyping. It is not yet a complete game or
 
 ## Current prototype
 
-Version `0.3.0` currently includes:
+Version `0.4.0` currently includes:
 
 - Native Android rendering with a fixed top-down 2D arena
 - Drag-anywhere virtual joystick controls
@@ -19,6 +19,7 @@ Version `0.3.0` currently includes:
 - A pressure switch controlled by either the player or ghost
 - A physical door that opens while the switch is held
 - A complete one-ghost puzzle with success and restart states
+- A persistent exit door with guidance cues and an animated victory sequence
 - Responsive scaling for different portrait phone screens
 - ARM64 Android packaging
 
@@ -96,6 +97,7 @@ Build outputs and APK files are intentionally excluded from source control.
 - [x] Pressure switches and controlled doors
 - [ ] Multiple simultaneous ghosts
 - [x] First complete puzzle level
+- [x] Exit door and visual completion feedback
 - [ ] Hazards and reset feedback
 - [ ] Sound effects, music, and haptics
 - [ ] Level selection and saved progress

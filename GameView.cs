@@ -18,13 +18,17 @@ public sealed class GameView : View
     private const float SwitchX = 250f;
     private const float SwitchY = 1390f;
     private const float SwitchRadius = 62f;
+    private const float ExitSequenceDuration = 1.65f;
 
     private readonly Paint _paint = new(PaintFlags.AntiAlias);
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly RectF _room = new(60f, 215f, 1020f, 1770f);
     private readonly RectF _door = new(420f, 985f, 660f, 1035f);
-    private readonly RectF _goal = new(430f, 300f, 650f, 425f);
+    private readonly RectF _goal = new(420f, 285f, 660f, 425f);
+    private readonly RectF _exitDoor = new(385f, 217f, 695f, 445f);
     private readonly RectF _restartButton = new(890f, 35f, 1040f, 105f);
+    private readonly RectF _replayButton = new(250f, 1030f, 830f, 1110f);
+    private readonly RectF _nextLevelButton = new(250f, 1130f, 830f, 1210f);
     private readonly List<RectF> _walls = [];
     private readonly List<PathSample> _recordedPath = [];
 
@@ -44,7 +48,12 @@ public sealed class GameView : View
     private bool _switchActive;
     private bool _doorOpen;
     private bool _levelComplete;
+    private bool _exitSequenceActive;
+    private bool _exitHapticTriggered;
     private float _loopElapsed;
+    private float _exitSequenceElapsed;
+    private float _exitStartX;
+    private float _exitStartY;
     private int _ghostPlaybackIndex;
     private long _lastFrameMs;
     private string? _fatalError;
@@ -102,8 +111,10 @@ public sealed class GameView : View
         DrawBackground(canvas);
         DrawRoom(canvas);
         DrawGhost(canvas);
+        DrawVictoryParticles(canvas);
         DrawPlayer(canvas);
         DrawJoystick(canvas, scale, offsetX, offsetY);
+        DrawExitFlash(canvas);
         DrawCompletionOverlay(canvas);
 
         canvas.Restore();
@@ -122,7 +133,16 @@ public sealed class GameView : View
 
     private void UpdateGame(float deltaSeconds)
     {
-        if (deltaSeconds <= 0f || !_loopRunning || _levelComplete)
+        if (deltaSeconds <= 0f || _levelComplete)
+            return;
+
+        if (_exitSequenceActive)
+        {
+            UpdateExitSequence(deltaSeconds);
+            return;
+        }
+
+        if (!_loopRunning)
             return;
 
         _loopElapsed = Math.Min(_loopElapsed + deltaSeconds, LoopDuration);
@@ -148,7 +168,7 @@ public sealed class GameView : View
 
         if (_firstRecordingComplete && _goal.Contains(_playerX, _playerY))
         {
-            CompleteLevel();
+            StartExitSequence();
             return;
         }
 
@@ -212,13 +232,49 @@ public sealed class GameView : View
         _switchActive = false;
         _doorOpen = false;
         _levelComplete = false;
+        _exitSequenceActive = false;
+        _exitHapticTriggered = false;
+        _exitSequenceElapsed = 0f;
+        _exitStartX = StartX;
+        _exitStartY = StartY;
         _loopRunning = false;
         _touching = false;
+    }
+
+    private void StartExitSequence()
+    {
+        _exitSequenceActive = true;
+        _exitSequenceElapsed = 0f;
+        _exitStartX = _playerX;
+        _exitStartY = _playerY;
+        _loopRunning = false;
+        _touching = false;
+        _inputX = 0f;
+        _inputY = 0f;
+
+        if (!_exitHapticTriggered)
+        {
+            PerformHapticFeedback(FeedbackConstants.LongPress);
+            _exitHapticTriggered = true;
+        }
+    }
+
+    private void UpdateExitSequence(float deltaSeconds)
+    {
+        _exitSequenceElapsed = Math.Min(_exitSequenceElapsed + deltaSeconds, ExitSequenceDuration);
+
+        var leaveProgress = EaseInOut((_exitSequenceElapsed - 0.36f) / 0.84f);
+        _playerX = _exitStartX + (WorldWidth / 2f - _exitStartX) * leaveProgress;
+        _playerY = _exitStartY + (140f - _exitStartY) * leaveProgress;
+
+        if (_exitSequenceElapsed >= ExitSequenceDuration)
+            CompleteLevel();
     }
 
     private void CompleteLevel()
     {
         _levelComplete = true;
+        _exitSequenceActive = false;
         _loopRunning = false;
         _touching = false;
         _inputX = 0f;
@@ -314,9 +370,11 @@ public sealed class GameView : View
         _paint.Color = Color.Rgb(139, 154, 190);
         var status = _levelComplete
             ? "مرحله کامل شد"
+            : _exitSequenceActive
+                ? "در خروج باز شد"
             : !_firstRecordingComplete
-                ? (_loopRunning ? "دور اول — کلید قرمز را نگه دار" : "حرکت کن تا دور اول شروع شود")
-                : (_loopRunning ? "دور دوم — از دروازه عبور کن" : "حرکت کن تا سایه شروع شود");
+                ? (_loopRunning ? "دور اول — راه در خروج را بساز" : "هدف: به در خروج سبز برس")
+                : (_loopRunning ? "دور دوم — از دروازه عبور کن و به خروج برس" : "حرکت کن تا سایه راه خروج را باز کند");
         canvas.DrawText(status, WorldWidth / 2f, 108f, _paint);
 
         _paint.Color = Color.Rgb(35, 45, 69);
@@ -367,17 +425,54 @@ public sealed class GameView : View
 
         DrawSwitchAndDoor(canvas);
 
-        _paint.Color = Color.Argb(45, 95, 226, 190);
-        canvas.DrawRoundRect(_goal, 24f, 24f, _paint);
+        DrawExitDoor(canvas);
+        DrawExitGuidance(canvas);
+    }
+
+    private void DrawExitDoor(Canvas canvas)
+    {
+        var opening = _exitSequenceActive
+            ? EaseInOut(_exitSequenceElapsed / 0.42f)
+            : _levelComplete ? 1f : 0f;
+        var pulse = 0.5f + 0.5f * MathF.Sin((float)_clock.Elapsed.TotalSeconds * 3.5f);
+
+        _paint.Color = Color.Rgb(38, 82, 86);
+        canvas.DrawRoundRect(_exitDoor, 34f, 34f, _paint);
+
+        var inner = new RectF(_exitDoor.Left + 20f, _exitDoor.Top + 18f, _exitDoor.Right - 20f, _exitDoor.Bottom - 16f);
+        _paint.Color = Color.Argb((int)(45 + opening * 150), 95, 226, 190);
+        canvas.DrawRoundRect(inner, 24f, 24f, _paint);
+
         _paint.SetStyle(Paint.Style.Stroke);
-        _paint.StrokeWidth = 6f;
+        _paint.StrokeWidth = 8f;
         _paint.Color = Color.Rgb(95, 226, 190);
-        canvas.DrawRoundRect(_goal, 24f, 24f, _paint);
+        canvas.DrawRoundRect(_exitDoor, 34f, 34f, _paint);
         _paint.SetStyle(Paint.Style.Fill);
+
+        var halfPanel = inner.Width() / 2f - 8f;
+        var panelWidth = halfPanel * (1f - opening);
+        _paint.Color = Color.Rgb(22, 73, 76);
+        canvas.DrawRoundRect(new RectF(inner.Left, inner.Top, inner.Left + panelWidth, inner.Bottom), 20f, 20f, _paint);
+        canvas.DrawRoundRect(new RectF(inner.Right - panelWidth, inner.Top, inner.Right, inner.Bottom), 20f, 20f, _paint);
+
+        _paint.Color = Color.Argb((int)(95 + 110 * pulse), 143, 255, 220);
+        canvas.DrawCircle(WorldWidth / 2f, 258f, 11f + pulse * 4f, _paint);
         _paint.TextAlign = Paint.Align.Center;
         _paint.TextSize = 27f;
-        _paint.Color = Color.Rgb(95, 226, 190);
-        canvas.DrawText("خروج", WorldWidth / 2f, 375f, _paint);
+        _paint.Color = Color.Rgb(194, 255, 229);
+        canvas.DrawText("در خروج", WorldWidth / 2f, 420f, _paint);
+    }
+
+    private void DrawExitGuidance(Canvas canvas)
+    {
+        var pulse = 0.5f + 0.5f * MathF.Sin((float)_clock.Elapsed.TotalSeconds * 2.6f);
+        _paint.Color = Color.Argb((int)(28 + 42 * pulse), 95, 226, 190);
+        _paint.StrokeWidth = 7f;
+        for (var y = 505f; y <= 745f; y += 100f)
+        {
+            canvas.DrawLine(495f, y, 540f, y - 35f, _paint);
+            canvas.DrawLine(540f, y - 35f, 585f, y, _paint);
+        }
     }
 
     private void DrawSwitchAndDoor(Canvas canvas)
@@ -426,12 +521,40 @@ public sealed class GameView : View
         canvas.DrawCircle(_ghostX + 12f, _ghostY - 7f, 5f, _paint);
     }
 
+    private void DrawVictoryParticles(Canvas canvas)
+    {
+        if (!_exitSequenceActive || _exitSequenceElapsed < 0.32f)
+            return;
+
+        var flow = (_exitSequenceElapsed - 0.32f) / 0.95f;
+        for (var index = 0; index < 16; index++)
+        {
+            var delayed = Math.Clamp((flow - index * 0.045f) / 0.55f, 0f, 1f);
+            var eased = EaseInOut(delayed);
+            var startX = _ghostX + MathF.Sin(index * 2.1f) * 24f;
+            var startY = _ghostY + MathF.Cos(index * 1.7f) * 24f;
+            var endX = WorldWidth / 2f + MathF.Sin(index * 1.1f) * 42f;
+            var endY = 230f + MathF.Cos(index * 1.3f) * 36f;
+            var alpha = (int)(190 * (1f - Math.Max(0f, delayed - 0.72f) / 0.28f));
+            _paint.Color = Color.Argb(alpha, 190, 111, 255);
+            canvas.DrawCircle(
+                startX + (endX - startX) * eased,
+                startY + (endY - startY) * eased,
+                5f + (1f - eased) * 5f,
+                _paint);
+        }
+    }
+
     private void DrawPlayer(Canvas canvas)
     {
-        _paint.Color = Color.Rgb(69, 220, 255);
+        var visibility = _exitSequenceActive
+            ? 1f - EaseInOut((_exitSequenceElapsed - 1.05f) / 0.4f)
+            : 1f;
+        var alpha = (int)(255 * Math.Clamp(visibility, 0f, 1f));
+        _paint.Color = Color.Argb(alpha, 69, 220, 255);
         canvas.DrawCircle(_playerX, _playerY, PlayerRadius, _paint);
 
-        _paint.Color = Color.White;
+        _paint.Color = Color.Argb(alpha, 255, 255, 255);
         canvas.DrawCircle(_playerX - 12f, _playerY - 7f, 5f, _paint);
         canvas.DrawCircle(_playerX + 12f, _playerY - 7f, 5f, _paint);
     }
@@ -467,18 +590,43 @@ public sealed class GameView : View
             return;
 
         _paint.Color = Color.Argb(190, 7, 10, 20);
-        canvas.DrawRoundRect(new RectF(120f, 680f, 960f, 1180f), 42f, 42f, _paint);
+        canvas.DrawRoundRect(new RectF(120f, 650f, 960f, 1260f), 42f, 42f, _paint);
         _paint.TextAlign = Paint.Align.Center;
         _paint.SetTypeface(Typeface.Create(Typeface.Default, TypefaceStyle.Bold));
         _paint.TextSize = 54f;
         _paint.Color = Color.Rgb(95, 226, 190);
-        canvas.DrawText("مرحله کامل شد", WorldWidth / 2f, 850f, _paint);
+        canvas.DrawText("مرحله کامل شد", WorldWidth / 2f, 830f, _paint);
 
         _paint.SetTypeface(Typeface.Default);
         _paint.TextSize = 30f;
         _paint.Color = Color.Rgb(215, 225, 245);
-        canvas.DrawText("سایه‌ات دروازه را برایت باز کرد", WorldWidth / 2f, 930f, _paint);
-        canvas.DrawText("برای تکرار، دکمه «از نو» را بزن", WorldWidth / 2f, 990f, _paint);
+        canvas.DrawText("سایه‌ات راه در خروج را باز کرد", WorldWidth / 2f, 910f, _paint);
+
+        _paint.Color = Color.Rgb(55, 118, 108);
+        canvas.DrawRoundRect(_replayButton, 24f, 24f, _paint);
+        _paint.TextSize = 31f;
+        _paint.Color = Color.White;
+        canvas.DrawText("تکرار مرحله", WorldWidth / 2f, 1082f, _paint);
+
+        _paint.Color = Color.Rgb(42, 50, 68);
+        canvas.DrawRoundRect(_nextLevelButton, 24f, 24f, _paint);
+        _paint.TextSize = 29f;
+        _paint.Color = Color.Rgb(150, 160, 180);
+        canvas.DrawText("مرحله بعد — به‌زودی", WorldWidth / 2f, 1180f, _paint);
+    }
+
+    private void DrawExitFlash(Canvas canvas)
+    {
+        if (!_exitSequenceActive)
+            return;
+
+        var flash = Math.Clamp((_exitSequenceElapsed - 1.05f) / 0.25f, 0f, 1f)
+            * (1f - Math.Clamp((_exitSequenceElapsed - 1.30f) / 0.35f, 0f, 1f));
+        if (flash <= 0f)
+            return;
+
+        _paint.Color = Color.Argb((int)(120 * flash), 128, 255, 215);
+        canvas.DrawRect(0f, 0f, WorldWidth, WorldHeight, _paint);
     }
 
     public override bool OnTouchEvent(MotionEvent? e)
@@ -497,6 +645,13 @@ public sealed class GameView : View
                 }
 
                 if (_levelComplete)
+                {
+                    if (_replayButton.Contains(worldPoint.X, worldPoint.Y))
+                        ResetLevel();
+                    return true;
+                }
+
+                if (_exitSequenceActive)
                     return true;
 
                 _touching = true;
@@ -554,6 +709,12 @@ public sealed class GameView : View
         var offsetX = (Width - WorldWidth * scale) / 2f;
         var offsetY = (Height - WorldHeight * scale) / 2f;
         return new PointF((screenX - offsetX) / scale, (screenY - offsetY) / scale);
+    }
+
+    private static float EaseInOut(float value)
+    {
+        value = Math.Clamp(value, 0f, 1f);
+        return value * value * (3f - 2f * value);
     }
 
     private readonly record struct PathSample(float Time, float X, float Y);
