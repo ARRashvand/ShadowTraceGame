@@ -1,120 +1,69 @@
 # Shadow Trace — رد من
 
-> A minimalist 2D time-loop puzzle game where every move you make returns as part of the next attempt.
+A small Android time-loop puzzle about cooperating with your past selves.
 
-**Shadow Trace** is an early Android game prototype built around a simple idea: your previous movement is recorded, then replayed by a ghost in the next loop. Future puzzles will require the player to cooperate with these past versions to open paths, activate mechanisms, and reach the exit.
+This is a playable prototype, not a finished game. Version **0.7.0** explores one level with three solutions. Only the first level is implemented; the proposed four-level campaign remains a design plan.
 
-The project is currently in active prototyping. It is not yet a complete game or a production-ready release.
+## One level, three discoveries
 
-## Current prototype
+Reach the green exit using two ghosts, one ghost, or no ghosts. The level combines red and blue pressure switches with a movable crate. A narrow passage admits the crate but not the player. Solutions are recognized by the number of recorded ghosts at completion, not by a required sequence of coordinates.
 
-Version `0.6.0` currently includes:
+| Discovery | Condition (without assistance) | First-time reward |
+| --- | --- | --- |
+| Normal | Finish with two ghosts | Badge, 100 points |
+| Clever | Finish with one ghost | Badge, 250 points, one time-pause token |
+| Master | Finish with no ghosts | Badge, 500 points, one rewrite token |
 
-- Native Android rendering with a fixed top-down 2D arena
-- Drag-anywhere virtual joystick controls
-- Player movement and collision with walls
-- A 12-second gameplay loop
-- Recording the player's first route
-- Replaying two recorded routes as synchronized ghosts
-- A pressure switch controlled by either the player or ghost
-- A physical door that opens while the switch is held
-- A complete two-ghost puzzle with red and blue mechanisms
-- A persistent exit door with guidance cues and an animated victory sequence
-- A first-run tutorial and an in-game feedback sharing shortcut for private playtests
-- Responsive scaling for different portrait phone screens
-- ARM64 Android packaging
+Each badge is independent and awards its reward once. Repeating a solution never farms tokens. The collection score is capped at 850. Badges and token balances are saved locally; uninstalling or clearing app data removes them. Runs themselves are not saved across process termination.
 
-Multiple ghosts can now cooperate through chained environmental actions. Hazards, additional levels, audio, and progression will be introduced incrementally.
+## Controls and rules
 
-## Core concept
-
-Each level is composed of several short time loops:
-
-1. The player performs an action during a limited time window.
-2. The loop resets and the player's previous actions return as a ghost.
-3. The player uses that ghost to reach a new mechanism or area.
-4. Additional ghosts form a chain of coordinated actions.
-5. The final run uses all previous ghosts to unlock the exit.
-
-The long-term goal is to combine accessible one-finger controls with short puzzle stages that reward planning, timing, and experimentation.
-
-## Technology
-
-- C#
-- .NET 10 for Android
-- Native Android `View` and `Canvas` rendering
-- Minimum Android version: Android 8.0 / API 26
-- Primary device architecture: ARM64
-
-The prototype intentionally avoids external game engines and third-party runtime dependencies while the core mechanic is being validated.
-
-## Requirements
-
-- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
-- .NET Android workload
-- Android SDK
-
-Install the Android workload if it is not already available:
-
-```powershell
-dotnet workload install android
-```
+- Drag anywhere in the room to move. Release to stop. The timer starts on movement.
+- Each loop lasts 12 seconds. The first two completed setup loops become ghosts.
+- Ghosts replay both movement and recorded crate movements. After a ghost releases the crate, it can be moved by the current player. Simultaneous recorded crate moves have deterministic priority: the later ghost wins.
+- Push the crate by walking into it. Use **گرفتن جعبه** near it to pull, then tap again to release. The tether can pass through the narrow crate passage, not solid walls.
+- **از نو** is always free and clears recordings, the crate position and assistance status, while keeping earned discoveries and inventory.
+- A time-pause token freezes the loop clock and ghosts for three seconds while the player may move. Switches held by ghosts remain active.
+- A rewrite token returns to the beginning of a chosen ghost's recording. Older ghosts remain; the chosen ghost and all dependent later ghosts are removed. Confirmation is required before spending.
+- Assisted completion is allowed but does not award unassisted badges. Restart freely to make an unassisted attempt.
+- Tutorial, hints and feedback sharing are available in Persian. No account, analytics, advertising, payments, music or network service is built into gameplay.
 
 ## Build
 
-Clone the repository and enter the project directory:
+Requires .NET 10 SDK, the .NET Android workload, Android SDK and a compatible JDK. The current package targets ARM64 devices with Android 8.0/API 26 or newer.
 
 ```powershell
-git clone https://github.com/ARRashvand/ShadowTraceGame.git
-Set-Location ShadowTraceGame
+dotnet workload install android
+dotnet build ShadowTraceGame.csproj -c Release --disable-build-servers -m:1
 ```
 
-Build a debug APK:
+The signed test APK is generated at `bin/Release/net10.0-android/ir.shadowtrace.game-Signed.apk`. This is a private playtest build signed with the local development key, not a store-production signing setup. Versioned playtest copies are placed in ignored `artifacts/` locally.
+
+## Verification
+
+The Android view and a dependency-free console test harness share `Puzzle.cs`:
 
 ```powershell
-dotnet build ShadowTraceGame.csproj -c Debug -m:1
+dotnet run --project tests/RouteTests.csproj
 ```
 
-The signed debug APK is generated at:
+Tests drive actual player input through all three routes at 30, 60 and 120 FPS. They also cover closed doors, the crate-only passage, recorded crate actions, rewriting dependencies, time pause, free reset and one-time reward rules. Physical-device testing is still needed for touch feel, Persian layout, Android persistence, dialogs and the final APK.
 
-```text
-bin/Debug/net10.0-android/ir.shadowtrace.game-Signed.apk
-```
+## Feedback
 
-Build outputs and APK files are intentionally excluded from source control.
-
-## Controls
-
-- Touch and drag anywhere on the screen to move.
-- Release your finger to stop.
-- The timer begins with the player's first movement.
-- Each completed setup loop becomes a ghost in the next loop.
-- Use the first ghost to hold the red switch, the second to hold the blue switch, then reach the exit on the third run.
-
-## Private playtest
-
-The current build is intended for a small, private group of Android testers. Complete the first puzzle, then use **ارسال نظر** on the completion screen to share feedback through any installed messaging app. The feedback prompt asks about clarity, controls, the time-loop idea, confusion points, and desired changes. No analytics, account, or network service is built into the game.
+Use **ارسال نظر** after completing the level to share a short prompt through an installed messaging app. It does not send anything automatically. Useful feedback: which solutions you discovered, crate control, confusion points and whether you wanted another attempt.
 
 ## Roadmap
 
-- [x] Player movement and wall collision
-- [x] Timed route recording
-- [x] First ghost playback
-- [x] Pressure switches and controlled doors
-- [x] Multiple simultaneous ghosts
-- [x] First complete puzzle level
-- [x] Exit door and visual completion feedback
-- [ ] Hazards and reset feedback
-- [ ] Sound effects, music, and haptics
-- [ ] Level selection and saved progress
-- [ ] Release builds and store-ready packaging
-
-## Project status
-
-This repository follows a small-step development process: each mechanic is implemented and tested on a physical Android device before the next system is introduced. APIs, visuals, and level rules may change while the prototype evolves.
-
-Bug reports and focused suggestions are welcome through GitHub Issues.
+- [x] Movement, walls, synchronized ghost playback
+- [x] Red/blue switches, crate pushing and pulling
+- [x] First level with three independently rewarded solutions
+- [x] Local discoveries and consumable assistance
+- [x] Exit animation, tutorial and private feedback sharing
+- [ ] Test and tune first-level discovery with players
+- [ ] Design and build the remaining three levels
+- [ ] Sound, accessibility refinements, campaign and store packaging
 
 ## License
 
-No open-source license has been granted at this stage. The source is publicly visible for development and evaluation, but all rights remain reserved unless a license is added later.
+No open-source license has been granted. The repository is publicly visible, but no additional reuse rights are granted unless a license is added later.
