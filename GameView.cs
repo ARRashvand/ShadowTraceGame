@@ -15,8 +15,11 @@ public sealed class GameView : View
     private const float LoopDuration = 12f;
     private const float StartX = WorldWidth / 2f;
     private const float StartY = 1630f;
-    private const float SwitchX = 250f;
-    private const float SwitchY = 1390f;
+    private const int RequiredGhostCount = 2;
+    private const float RedSwitchX = 250f;
+    private const float RedSwitchY = 1390f;
+    private const float BlueSwitchX = 830f;
+    private const float BlueSwitchY = 800f;
     private const float SwitchRadius = 62f;
     private const float ExitSequenceDuration = 1.65f;
     private const float IntroDuration = 0.72f;
@@ -24,7 +27,8 @@ public sealed class GameView : View
     private readonly Paint _paint = new(PaintFlags.AntiAlias);
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly RectF _room = new(60f, 215f, 1020f, 1770f);
-    private readonly RectF _door = new(420f, 985f, 660f, 1035f);
+    private readonly RectF _redDoor = new(420f, 985f, 660f, 1035f);
+    private readonly RectF _blueDoor = new(420f, 615f, 660f, 665f);
     private readonly RectF _goal = new(430f, 275f, 650f, 400f);
     private readonly RectF _exitDoor = new(420f, 217f, 660f, 365f);
     private readonly RectF _restartButton = new(890f, 35f, 1040f, 105f);
@@ -32,13 +36,13 @@ public sealed class GameView : View
     private readonly RectF _replayButton = new(250f, 1070f, 830f, 1150f);
     private readonly RectF _nextLevelButton = new(250f, 1170f, 830f, 1250f);
     private readonly List<RectF> _walls = [];
-    private readonly List<PathSample> _recordedPath = [];
+    private readonly List<List<PathSample>> _recordedPaths = [];
+    private readonly List<PathSample> _currentRecording = [];
+    private readonly List<GhostPlayback> _ghosts = [];
     private readonly Context _context;
 
     private float _playerX = StartX;
     private float _playerY = StartY;
-    private float _ghostX = StartX;
-    private float _ghostY = StartY;
     private float _inputX;
     private float _inputY;
     private float _touchStartX;
@@ -47,9 +51,10 @@ public sealed class GameView : View
     private float _touchY;
     private bool _touching;
     private bool _loopRunning;
-    private bool _firstRecordingComplete;
-    private bool _switchActive;
-    private bool _doorOpen;
+    private bool _redSwitchActive;
+    private bool _redDoorOpen;
+    private bool _blueSwitchActive;
+    private bool _blueDoorOpen;
     private bool _levelComplete;
     private bool _exitSequenceActive;
     private bool _exitHapticTriggered;
@@ -60,7 +65,6 @@ public sealed class GameView : View
     private float _introElapsed;
     private float _exitStartX;
     private float _exitStartY;
-    private int _ghostPlaybackIndex;
     private long _lastFrameMs;
     private string? _fatalError;
 
@@ -69,13 +73,14 @@ public sealed class GameView : View
         _context = context;
         _tutorialVisible = context
             .GetSharedPreferences("shadow_trace", FileCreationMode.Private)?
-            .GetBoolean("tutorial_seen", false) != true;
+            .GetBoolean("tutorial_seen_two_ghosts", false) != true;
         SetBackgroundColor(Color.Rgb(10, 13, 24));
         KeepScreenOn = true;
 
         _walls.Add(new RectF(60f, 995f, 420f, 1025f));
         _walls.Add(new RectF(660f, 995f, 1020f, 1025f));
-        _walls.Add(new RectF(270f, 625f, 810f, 655f));
+        _walls.Add(new RectF(60f, 625f, 420f, 655f));
+        _walls.Add(new RectF(660f, 625f, 1020f, 655f));
     }
 
     protected override void OnDraw(Canvas canvas)
@@ -128,7 +133,7 @@ public sealed class GameView : View
 
         DrawBackground(canvas);
         DrawRoom(canvas);
-        DrawGhost(canvas);
+        DrawGhosts(canvas);
         DrawVictoryParticles(canvas);
         DrawPlayer(canvas);
         DrawJoystick(canvas, scale, offsetX, offsetY);
@@ -176,8 +181,8 @@ public sealed class GameView : View
 
         _loopElapsed = Math.Min(_loopElapsed + deltaSeconds, LoopDuration);
 
-        if (_firstRecordingComplete)
-            UpdateGhostPosition(_loopElapsed);
+        foreach (var ghost in _ghosts)
+            UpdateGhostPosition(ghost, _loopElapsed);
 
         UpdateMechanisms();
 
@@ -192,10 +197,10 @@ public sealed class GameView : View
 
         UpdateMechanisms();
 
-        if (!_firstRecordingComplete)
-            _recordedPath.Add(new PathSample(_loopElapsed, _playerX, _playerY));
+        if (_recordedPaths.Count < RequiredGhostCount)
+            _currentRecording.Add(new PathSample(_loopElapsed, _playerX, _playerY));
 
-        if (_firstRecordingComplete && _goal.Contains(_playerX, _playerY))
+        if (_recordedPaths.Count >= RequiredGhostCount && _goal.Contains(_playerX, _playerY))
         {
             StartExitSequence();
             return;
@@ -212,34 +217,27 @@ public sealed class GameView : View
 
         _loopRunning = true;
         _loopElapsed = 0f;
-        _ghostPlaybackIndex = 0;
+        ResetGhostPlaybacks();
 
-        if (!_firstRecordingComplete)
-        {
-            _recordedPath.Clear();
-            _recordedPath.Add(new PathSample(0f, _playerX, _playerY));
-        }
-        else
-        {
-            UpdateGhostPosition(0f);
-        }
+        _currentRecording.Clear();
+        if (_recordedPaths.Count < RequiredGhostCount)
+            _currentRecording.Add(new PathSample(0f, _playerX, _playerY));
     }
 
     private void FinishLoop()
     {
-        if (!_firstRecordingComplete)
+        if (_recordedPaths.Count < RequiredGhostCount)
         {
-            _recordedPath.Add(new PathSample(LoopDuration, _playerX, _playerY));
-            _firstRecordingComplete = true;
+            _currentRecording.Add(new PathSample(LoopDuration, _playerX, _playerY));
+            _recordedPaths.Add([.. _currentRecording]);
+            _currentRecording.Clear();
         }
 
         _loopRunning = false;
         _loopElapsed = 0f;
         _playerX = StartX;
         _playerY = StartY;
-        _ghostX = StartX;
-        _ghostY = StartY;
-        _ghostPlaybackIndex = 0;
+        ResetGhostPlaybacks();
         _inputX = 0f;
         _inputY = 0f;
         _touching = false;
@@ -248,18 +246,18 @@ public sealed class GameView : View
 
     private void ResetLevel()
     {
-        _recordedPath.Clear();
+        _recordedPaths.Clear();
+        _currentRecording.Clear();
+        _ghosts.Clear();
         _playerX = StartX;
         _playerY = StartY;
-        _ghostX = StartX;
-        _ghostY = StartY;
         _inputX = 0f;
         _inputY = 0f;
         _loopElapsed = 0f;
-        _ghostPlaybackIndex = 0;
-        _firstRecordingComplete = false;
-        _switchActive = false;
-        _doorOpen = false;
+        _redSwitchActive = false;
+        _redDoorOpen = false;
+        _blueSwitchActive = false;
+        _blueDoorOpen = false;
         _levelComplete = false;
         _exitSequenceActive = false;
         _exitHapticTriggered = false;
@@ -275,17 +273,17 @@ public sealed class GameView : View
         _tutorialVisible = false;
         _context.GetSharedPreferences("shadow_trace", FileCreationMode.Private)?
             .Edit()?
-            .PutBoolean("tutorial_seen", true)?
+            .PutBoolean("tutorial_seen_two_ghosts", true)?
             .Apply();
     }
 
     private void ShareFeedback()
     {
         var feedback =
-            "رد من — نسخه ۰.۵\n\n" +
+            "رد من — نسخه ۰.۶\n\n" +
             "۱. آیا هدف بازی را سریع فهمیدی؟ چرا؟\n" +
             "۲. کنترل حرکت را از ۱ تا ۵ چند می‌دهی؟\n" +
-            "۳. ایده همکاری با سایه گذشته‌ات جذاب بود؟\n" +
+            "۳. همکاری با دو سایه گذشته‌ات جذاب بود؟\n" +
             "۴. کجا گیج شدی یا گیر کردی؟\n" +
             "۵. اگر یک چیز را تغییر دهی، چه خواهد بود؟";
 
@@ -337,18 +335,22 @@ public sealed class GameView : View
 
     private void UpdateMechanisms()
     {
-        var playerOnSwitch = IsOnSwitch(_playerX, _playerY);
-        var ghostOnSwitch = _firstRecordingComplete && IsOnSwitch(_ghostX, _ghostY);
-        _switchActive = playerOnSwitch || ghostOnSwitch;
+        _redSwitchActive = IsOnSwitch(_playerX, _playerY, RedSwitchX, RedSwitchY)
+            || _ghosts.Any(ghost => IsOnSwitch(ghost.X, ghost.Y, RedSwitchX, RedSwitchY));
+        _blueSwitchActive = IsOnSwitch(_playerX, _playerY, BlueSwitchX, BlueSwitchY)
+            || _ghosts.Any(ghost => IsOnSwitch(ghost.X, ghost.Y, BlueSwitchX, BlueSwitchY));
 
-        // Keep the door open until the player has completely passed through it.
-        _doorOpen = _switchActive || CircleIntersectsRect(_playerX, _playerY, PlayerRadius, _door);
+        // Keep each door open until the player has completely passed through it.
+        _redDoorOpen = _redSwitchActive
+            || CircleIntersectsRect(_playerX, _playerY, PlayerRadius, _redDoor);
+        _blueDoorOpen = _blueSwitchActive
+            || CircleIntersectsRect(_playerX, _playerY, PlayerRadius, _blueDoor);
     }
 
-    private static bool IsOnSwitch(float x, float y)
+    private static bool IsOnSwitch(float x, float y, float switchX, float switchY)
     {
-        var dx = x - SwitchX;
-        var dy = y - SwitchY;
+        var dx = x - switchX;
+        var dy = y - switchY;
         var activationRadius = SwitchRadius - 8f;
         return dx * dx + dy * dy <= activationRadius * activationRadius;
     }
@@ -362,30 +364,37 @@ public sealed class GameView : View
         return dx * dx + dy * dy < radius * radius;
     }
 
-    private void UpdateGhostPosition(float time)
+    private void ResetGhostPlaybacks()
     {
-        if (_recordedPath.Count == 0)
+        _ghosts.Clear();
+        for (var index = 0; index < _recordedPaths.Count; index++)
+            _ghosts.Add(new GhostPlayback(_recordedPaths[index], index));
+    }
+
+    private static void UpdateGhostPosition(GhostPlayback ghost, float time)
+    {
+        if (ghost.Path.Count == 0)
             return;
 
-        while (_ghostPlaybackIndex + 1 < _recordedPath.Count
-            && _recordedPath[_ghostPlaybackIndex + 1].Time <= time)
+        while (ghost.SampleIndex + 1 < ghost.Path.Count
+            && ghost.Path[ghost.SampleIndex + 1].Time <= time)
         {
-            _ghostPlaybackIndex++;
+            ghost.SampleIndex++;
         }
 
-        var current = _recordedPath[_ghostPlaybackIndex];
-        if (_ghostPlaybackIndex + 1 >= _recordedPath.Count)
+        var current = ghost.Path[ghost.SampleIndex];
+        if (ghost.SampleIndex + 1 >= ghost.Path.Count)
         {
-            _ghostX = current.X;
-            _ghostY = current.Y;
+            ghost.X = current.X;
+            ghost.Y = current.Y;
             return;
         }
 
-        var next = _recordedPath[_ghostPlaybackIndex + 1];
+        var next = ghost.Path[ghost.SampleIndex + 1];
         var span = Math.Max(next.Time - current.Time, 0.0001f);
         var amount = Math.Clamp((time - current.Time) / span, 0f, 1f);
-        _ghostX = current.X + (next.X - current.X) * amount;
-        _ghostY = current.Y + (next.Y - current.Y) * amount;
+        ghost.X = current.X + (next.X - current.X) * amount;
+        ghost.Y = current.Y + (next.Y - current.Y) * amount;
     }
 
     private bool CanStandAt(float x, float y)
@@ -405,7 +414,10 @@ public sealed class GameView : View
         if (_walls.Any(wall => RectF.Intersects(playerBounds, wall)))
             return false;
 
-        return _doorOpen || !RectF.Intersects(playerBounds, _door);
+        if (!_redDoorOpen && RectF.Intersects(playerBounds, _redDoor))
+            return false;
+
+        return _blueDoorOpen || !RectF.Intersects(playerBounds, _blueDoor);
     }
 
     private void DrawBackground(Canvas canvas)
@@ -426,9 +438,12 @@ public sealed class GameView : View
             ? "مرحله کامل شد"
             : _exitSequenceActive
                 ? "در خروج باز شد"
-            : !_firstRecordingComplete
-                ? (_loopRunning ? "دور اول — راه در خروج را بساز" : "هدف: به در خروج سبز برس")
-                : (_loopRunning ? "دور دوم — از دروازه عبور کن و به خروج برس" : "حرکت کن تا سایه راه خروج را باز کند");
+            : _recordedPaths.Count switch
+            {
+                0 => _loopRunning ? "دور اول — کلید قرمز را نگه دار" : "هدف: با دو سایه به در خروج برس",
+                1 => _loopRunning ? "دور دوم — کلید آبی را نگه دار" : "سایه اول آماده است — حرکت کن",
+                _ => _loopRunning ? "دور سوم — از هر دو دروازه عبور کن" : "دو سایه آماده‌اند — به خروج برس"
+            };
         canvas.DrawText(status, WorldWidth / 2f, 108f, _paint);
 
         _paint.Color = Color.Rgb(35, 45, 69);
@@ -440,9 +455,12 @@ public sealed class GameView : View
         var progress = _loopRunning ? _loopElapsed / LoopDuration : 0f;
         _paint.Color = Color.Rgb(35, 45, 69);
         canvas.DrawRoundRect(new RectF(100f, 137f, 980f, 171f), 17f, 17f, _paint);
-        _paint.Color = _firstRecordingComplete
-            ? Color.Rgb(190, 111, 255)
-            : Color.Rgb(69, 220, 255);
+        _paint.Color = _recordedPaths.Count switch
+        {
+            0 => Color.Rgb(69, 220, 255),
+            1 => Color.Rgb(190, 111, 255),
+            _ => Color.Rgb(255, 195, 89)
+        };
         canvas.DrawRoundRect(new RectF(100f, 137f, 100f + 880f * progress, 171f), 17f, 17f, _paint);
 
         _paint.TextSize = 25f;
@@ -492,7 +510,7 @@ public sealed class GameView : View
             canvas.DrawRoundRect(wall, 12f, 12f, _paint);
         }
 
-        DrawSwitchAndDoor(canvas);
+        DrawSwitchesAndDoors(canvas);
 
         DrawExitDoor(canvas);
         DrawExitGuidance(canvas);
@@ -544,73 +562,112 @@ public sealed class GameView : View
         }
     }
 
-    private void DrawSwitchAndDoor(Canvas canvas)
+    private void DrawSwitchesAndDoors(Canvas canvas)
+    {
+        DrawSwitchAndDoor(
+            canvas,
+            RedSwitchX,
+            RedSwitchY,
+            _redDoor,
+            _redSwitchActive,
+            _redDoorOpen,
+            Color.Rgb(255, 82, 105),
+            Color.Rgb(91, 56, 70),
+            Color.Rgb(255, 180, 190));
+
+        DrawSwitchAndDoor(
+            canvas,
+            BlueSwitchX,
+            BlueSwitchY,
+            _blueDoor,
+            _blueSwitchActive,
+            _blueDoorOpen,
+            Color.Rgb(75, 142, 255),
+            Color.Rgb(48, 65, 105),
+            Color.Rgb(163, 197, 255));
+    }
+
+    private void DrawSwitchAndDoor(
+        Canvas canvas,
+        float switchX,
+        float switchY,
+        RectF door,
+        bool switchActive,
+        bool doorOpen,
+        Color activeColor,
+        Color inactiveColor,
+        Color highlightColor)
     {
         _paint.StrokeWidth = 7f;
-        _paint.Color = _switchActive
-            ? Color.Argb(150, 255, 82, 105)
-            : Color.Argb(55, 255, 82, 105);
-        canvas.DrawLine(SwitchX, SwitchY, SwitchX, _door.Bottom, _paint);
-        canvas.DrawLine(SwitchX, _door.Bottom, _door.Left, _door.Bottom, _paint);
+        _paint.Color = switchActive
+            ? Color.Argb(150, activeColor.R, activeColor.G, activeColor.B)
+            : Color.Argb(55, activeColor.R, activeColor.G, activeColor.B);
+        canvas.DrawLine(switchX, switchY, switchX, door.Bottom, _paint);
+        canvas.DrawLine(switchX, door.Bottom, door.Left, door.Bottom, _paint);
 
-        _paint.Color = _switchActive
-            ? Color.Rgb(255, 82, 105)
-            : Color.Rgb(91, 56, 70);
-        canvas.DrawCircle(SwitchX, SwitchY, SwitchRadius, _paint);
-        _paint.Color = _switchActive
-            ? Color.Rgb(255, 180, 190)
-            : Color.Rgb(150, 85, 100);
-        canvas.DrawCircle(SwitchX, SwitchY, SwitchRadius - 18f, _paint);
+        _paint.Color = switchActive ? activeColor : inactiveColor;
+        canvas.DrawCircle(switchX, switchY, SwitchRadius, _paint);
+        _paint.Color = switchActive ? highlightColor : Color.Rgb(105, 112, 137);
+        canvas.DrawCircle(switchX, switchY, SwitchRadius - 18f, _paint);
 
-        if (_doorOpen)
+        if (doorOpen)
         {
-            _paint.Color = Color.Argb(65, 255, 82, 105);
-            canvas.DrawRoundRect(_door, 14f, 14f, _paint);
+            _paint.Color = Color.Argb(65, activeColor.R, activeColor.G, activeColor.B);
+            canvas.DrawRoundRect(door, 14f, 14f, _paint);
         }
         else
         {
-            _paint.Color = Color.Rgb(222, 63, 87);
-            canvas.DrawRoundRect(_door, 14f, 14f, _paint);
-            _paint.Color = Color.Rgb(255, 142, 156);
-            for (var x = _door.Left + 28f; x < _door.Right; x += 48f)
-                canvas.DrawRect(x, _door.Top + 5f, x + 12f, _door.Bottom - 5f, _paint);
+            _paint.Color = activeColor;
+            canvas.DrawRoundRect(door, 14f, 14f, _paint);
+            _paint.Color = highlightColor;
+            for (var x = door.Left + 28f; x < door.Right; x += 48f)
+                canvas.DrawRect(x, door.Top + 5f, x + 12f, door.Bottom - 5f, _paint);
         }
     }
 
-    private void DrawGhost(Canvas canvas)
+    private void DrawGhosts(Canvas canvas)
     {
-        if (!_firstRecordingComplete)
-            return;
+        foreach (var ghost in _ghosts)
+        {
+            _paint.Color = ghost.ColorIndex == 0
+                ? Color.Argb(135, 190, 111, 255)
+                : Color.Argb(145, 255, 195, 89);
+            canvas.DrawCircle(ghost.X, ghost.Y, PlayerRadius, _paint);
 
-        _paint.Color = Color.Argb(125, 190, 111, 255);
-        canvas.DrawCircle(_ghostX, _ghostY, PlayerRadius, _paint);
-
-        _paint.Color = Color.Argb(170, 255, 255, 255);
-        canvas.DrawCircle(_ghostX - 12f, _ghostY - 7f, 5f, _paint);
-        canvas.DrawCircle(_ghostX + 12f, _ghostY - 7f, 5f, _paint);
+            _paint.Color = Color.Argb(185, 255, 255, 255);
+            canvas.DrawCircle(ghost.X - 12f, ghost.Y - 7f, 5f, _paint);
+            canvas.DrawCircle(ghost.X + 12f, ghost.Y - 7f, 5f, _paint);
+        }
     }
 
     private void DrawVictoryParticles(Canvas canvas)
     {
-        if (!_exitSequenceActive || _exitSequenceElapsed < 0.32f)
+        if (!_exitSequenceActive || _exitSequenceElapsed < 0.32f || _ghosts.Count == 0)
             return;
 
         var flow = (_exitSequenceElapsed - 0.32f) / 0.95f;
-        for (var index = 0; index < 16; index++)
+        for (var ghostIndex = 0; ghostIndex < _ghosts.Count; ghostIndex++)
         {
-            var delayed = Math.Clamp((flow - index * 0.045f) / 0.55f, 0f, 1f);
-            var eased = EaseInOut(delayed);
-            var startX = _ghostX + MathF.Sin(index * 2.1f) * 24f;
-            var startY = _ghostY + MathF.Cos(index * 1.7f) * 24f;
-            var endX = WorldWidth / 2f + MathF.Sin(index * 1.1f) * 42f;
-            var endY = 230f + MathF.Cos(index * 1.3f) * 36f;
-            var alpha = (int)(190 * (1f - Math.Max(0f, delayed - 0.72f) / 0.28f));
-            _paint.Color = Color.Argb(alpha, 190, 111, 255);
-            canvas.DrawCircle(
-                startX + (endX - startX) * eased,
-                startY + (endY - startY) * eased,
-                5f + (1f - eased) * 5f,
-                _paint);
+            var ghost = _ghosts[ghostIndex];
+            for (var particleIndex = 0; particleIndex < 9; particleIndex++)
+            {
+                var sequenceIndex = ghostIndex * 9 + particleIndex;
+                var delayed = Math.Clamp((flow - sequenceIndex * 0.035f) / 0.55f, 0f, 1f);
+                var eased = EaseInOut(delayed);
+                var startX = ghost.X + MathF.Sin(sequenceIndex * 2.1f) * 24f;
+                var startY = ghost.Y + MathF.Cos(sequenceIndex * 1.7f) * 24f;
+                var endX = WorldWidth / 2f + MathF.Sin(sequenceIndex * 1.1f) * 42f;
+                var endY = 230f + MathF.Cos(sequenceIndex * 1.3f) * 36f;
+                var alpha = (int)(190 * (1f - Math.Max(0f, delayed - 0.72f) / 0.28f));
+                _paint.Color = ghostIndex == 0
+                    ? Color.Argb(alpha, 190, 111, 255)
+                    : Color.Argb(alpha, 255, 195, 89);
+                canvas.DrawCircle(
+                    startX + (endX - startX) * eased,
+                    startY + (endY - startY) * eased,
+                    5f + (1f - eased) * 5f,
+                    _paint);
+            }
         }
     }
 
@@ -669,7 +726,7 @@ public sealed class GameView : View
         _paint.SetTypeface(Typeface.Default);
         _paint.TextSize = 30f;
         _paint.Color = Color.Rgb(215, 225, 245);
-        canvas.DrawText("سایه‌ات راه در خروج را باز کرد", WorldWidth / 2f, 860f, _paint);
+        canvas.DrawText("دو سایه‌ات راه در خروج را ساختند", WorldWidth / 2f, 860f, _paint);
 
         _paint.Color = Color.Rgb(77, 88, 128);
         canvas.DrawRoundRect(_feedbackButton, 24f, 24f, _paint);
@@ -706,9 +763,11 @@ public sealed class GameView : View
         _paint.SetTypeface(Typeface.Default);
         _paint.TextSize = 31f;
         _paint.Color = Color.Rgb(226, 235, 250);
-        canvas.DrawText("۱. دور اول روی کلید قرمز بمان.", WorldWidth / 2f, 765f, _paint);
-        canvas.DrawText("۲. در دور دوم، سایه‌ات کلید را نگه می‌دارد.", WorldWidth / 2f, 840f, _paint);
-        canvas.DrawText("۳. از دروازه عبور کن و وارد در خروج شو.", WorldWidth / 2f, 915f, _paint);
+        canvas.DrawText("۱. دور اول روی کلید قرمز بمان.", WorldWidth / 2f, 740f, _paint);
+        canvas.DrawText("۲. دور دوم از سایه اول کمک بگیر", WorldWidth / 2f, 810f, _paint);
+        canvas.DrawText("و روی کلید آبی بمان.", WorldWidth / 2f, 860f, _paint);
+        canvas.DrawText("۳. دور سوم با کمک هر دو سایه", WorldWidth / 2f, 930f, _paint);
+        canvas.DrawText("از درها عبور کن و به خروج برس.", WorldWidth / 2f, 980f, _paint);
 
         _paint.Color = Color.Rgb(55, 118, 108);
         canvas.DrawRoundRect(new RectF(265f, 1035f, 815f, 1130f), 26f, 26f, _paint);
@@ -832,6 +891,15 @@ public sealed class GameView : View
     {
         value = Math.Clamp(value, 0f, 1f);
         return value * value * (3f - 2f * value);
+    }
+
+    private sealed class GhostPlayback(List<PathSample> path, int colorIndex)
+    {
+        public List<PathSample> Path { get; } = path;
+        public int ColorIndex { get; } = colorIndex;
+        public float X { get; set; } = StartX;
+        public float Y { get; set; } = StartY;
+        public int SampleIndex { get; set; }
     }
 
     private readonly record struct PathSample(float Time, float X, float Y);

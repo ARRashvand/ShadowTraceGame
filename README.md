@@ -8,23 +8,23 @@ The project is currently in active prototyping. It is not yet a complete game or
 
 ## Current prototype
 
-Version `0.5.0` currently includes:
+Version `0.6.0` currently includes:
 
 - Native Android rendering with a fixed top-down 2D arena
 - Drag-anywhere virtual joystick controls
 - Player movement and collision with walls
 - A 12-second gameplay loop
 - Recording the player's first route
-- Replaying the recorded route as a synchronized ghost
+- Replaying two recorded routes as synchronized ghosts
 - A pressure switch controlled by either the player or ghost
 - A physical door that opens while the switch is held
-- A complete one-ghost puzzle with success and restart states
+- A complete two-ghost puzzle with red and blue mechanisms
 - A persistent exit door with guidance cues and an animated victory sequence
 - A first-run tutorial and an in-game feedback sharing shortcut for private playtests
 - Responsive scaling for different portrait phone screens
 - ARM64 Android packaging
 
-The first ghost can now affect the environment. Hazards, multiple ghosts, additional levels, audio, and progression will be introduced incrementally.
+Multiple ghosts can now cooperate through chained environmental actions. Hazards, additional levels, audio, and progression will be introduced incrementally.
 
 ## Core concept
 
@@ -88,7 +88,8 @@ Build outputs and APK files are intentionally excluded from source control.
 - Touch and drag anywhere on the screen to move.
 - Release your finger to stop.
 - The timer begins with the player's first movement.
-- After the first 12-second loop, move again to start playback of the recorded ghost.
+- Each completed setup loop becomes a ghost in the next loop.
+- Use the first ghost to hold the red switch, the second to hold the blue switch, then reach the exit on the third run.
 
 ## Private playtest
 
@@ -100,7 +101,7 @@ The current build is intended for a small, private group of Android testers. Com
 - [x] Timed route recording
 - [x] First ghost playback
 - [x] Pressure switches and controlled doors
-- [ ] Multiple simultaneous ghosts
+- [x] Multiple simultaneous ghosts
 - [x] First complete puzzle level
 - [x] Exit door and visual completion feedback
 - [ ] Hazards and reset feedback

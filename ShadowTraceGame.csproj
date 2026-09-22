@@ -9,8 +9,8 @@
 
     <ApplicationId>ir.shadowtrace.game</ApplicationId>
     <ApplicationTitle>رد من</ApplicationTitle>
-    <ApplicationDisplayVersion>0.5.0</ApplicationDisplayVersion>
-    <ApplicationVersion>6</ApplicationVersion>
+    <ApplicationDisplayVersion>0.6.0</ApplicationDisplayVersion>
+    <ApplicationVersion>7</ApplicationVersion>
     <AndroidPackageFormats>apk</AndroidPackageFormats>
     <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
     <RuntimeIdentifiers>android-arm64</RuntimeIdentifiers>
