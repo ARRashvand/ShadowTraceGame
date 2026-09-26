@@ -99,4 +99,37 @@ Check(rewards.Award(1, false) && rewards.Pauses == 1, "smart reward");
 Check(!rewards.Award(1, false) && rewards.Pauses == 1, "no repeat reward farming");
 Check(!rewards.Award(2, true) && rewards.Rewrites == 0, "assisted win earns no unassisted badge");
 Check(rewards.Award(2, false) && rewards.Rewrites == 1 && rewards.Score == 850, "master reward and collection score");
+foreach(var hz in new[]{30f,60f,120f})
+{
+    var normal = new Puzzle(2);
+    RedRecording(normal); PassRed(normal,hz); Go(normal,830,780,hz); WaitRound(normal);
+    PassRed(normal,hz); Finish(normal,hz);
+    Check(normal.Won && normal.Tier==0,$"level 2 normal at {hz} fps");
+
+    var clever = new Puzzle(2);
+    RedRecording(clever); PassRed(clever,hz); Go(clever,830,780,hz);
+    Go(clever,540,780,hz); Finish(clever,hz);
+    Check(clever.Won && clever.Tier==1,$"level 2 memory shortcut at {hz} fps");
+
+    var master = new Puzzle(2);
+    PlaceRedCrate(master,hz); Go(master,540,1168,hz); Go(master,540,900,hz);
+    Go(master,830,780,hz); Go(master,540,780,hz); Finish(master,hz);
+    Check(master.Won && master.Tier==2,$"level 2 crate and memory at {hz} fps ({master.Time:F2}s)");
+}
+var memory = new Puzzle(2);
+PlaceRedCrate(memory); Go(memory,540,1168); Go(memory,540,900); Go(memory,830,780);
+Go(memory,540,780);
+Check(!memory.BlueActive && memory.BlueOpen && memory.BlueMemory>0,"memory holds gate after leaving switch");
+var remaining=memory.BlueMemory;
+Check(memory.Freeze(),"memory freeze starts"); memory.Advance(1,0,0);
+Check(memory.BlueMemory==remaining,"assistance freezes memory countdown too");
+memory.Advance(2+remaining+0.1f,0,0);
+Check(!memory.BlueOpen && memory.BlueMemory==0,"memory expires and gate closes");
+memory.Reset();
+Check(memory.BlueMemory==0 && !memory.BlueOpen,"reset clears memory");
+Go(memory,540,1100); Go(memory,250,1100); memory.Advance(0.5f,0,-1);
+Check(memory.Y>=1063-0.01f,"level 2 has no crate chute bypass");
+var levelTwoRewards=new Discoveries();
+Check(levelTwoRewards.Award(2,false) && levelTwoRewards.Score==500 && rewards.Score==850,
+    "independent level discoveries");
 Console.WriteLine("All route and rule checks passed.");

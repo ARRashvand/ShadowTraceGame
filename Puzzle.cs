@@ -19,13 +19,19 @@ public sealed class Replay(List<Frame> frames)
 public sealed class Puzzle
 {
     public const float StartX = 540, StartY = 1630, Radius = 38, BoxHalf = 30;
-    public const float RedX = 250, RedY = 1100, BlueX = 250, BlueY = 780;
+    public const float RedX = 250, RedY = 1100, BlueY = 780;
+    public int Level { get; }
+    public float BlueX => Level == 1 ? 250 : 830;
+    public string Title => Level == 1 ? "دو دست، یک در" : "حافظهٔ کوتاه";
+    public float BlueMemory { get; private set; }
+    public const float MemoryDuration = 1.6f;
     public const float Duration = 12, Speed = 510, Step = 1f / 120;
     public static readonly Area Room = new(60, 215, 1020, 1770);
     public static readonly Area RedDoor = new(420, 985, 660, 1035);
     public static readonly Area BlueDoor = new(420, 615, 660, 665);
     // The 70-unit chute admits a 60-unit crate, but never the 76-unit player.
-    public static readonly Area[] Walls = [new(60, 995, 215, 1025), new(285, 995, 420, 1025),
+    public Area[] Walls { get; }
+    private static readonly Area[] FirstWalls = [new(60, 995, 215, 1025), new(285, 995, 420, 1025),
         new(660, 995, 1020, 1025), new(60, 625, 420, 655), new(660, 625, 1020, 655)];
     public List<Replay> Ghosts { get; } = [];
     private readonly List<Frame> recording = [];
@@ -47,7 +53,14 @@ public sealed class Puzzle
     public int Tier => Ghosts.Count == 0 ? 2 : Ghosts.Count == 1 ? 1 : 0;
     public string Notice { get; private set; } = "";
 
-    public Puzzle() => ResetRound();
+    public Puzzle(int level = 1)
+    {
+        if (level is < 1 or > 2) throw new ArgumentOutOfRangeException(nameof(level));
+        Level = level;
+        Walls = level == 1 ? FirstWalls : [new(60,995,420,1025), new(660,995,1020,1025),
+            new(60,625,420,655), new(660,625,1020,655)];
+        ResetRound();
+    }
 
     public void Reset()
     {
@@ -60,7 +73,7 @@ public sealed class Puzzle
     private void ResetRound()
     {
         X = StartX; Y = StartY; BoxX = 250; BoxY = 1280;
-        Time = FrozenFor = 0;
+        Time = FrozenFor = BlueMemory = 0;
         Running = Won = Holding = false;
         recording.Clear();
         recording.Add(new(0, X, Y, BoxX, BoxY, false));
@@ -118,6 +131,7 @@ public sealed class Puzzle
             if (!frozen)
             {
                 Time += dt;
+                BlueMemory = Math.Max(0, BlueMemory - dt);
                 ReplayGhosts();
             }
             var beforeX = BoxX; var beforeY = BoxY;
@@ -169,8 +183,9 @@ public sealed class Puzzle
     {
         RedActive = OnSwitch(RedX, RedY);
         BlueActive = OnSwitch(BlueX, BlueY);
+        if (Level == 2 && BlueActive) BlueMemory = MemoryDuration;
         RedOpen = RedActive || RedOpen && (RedDoor.Hits(X, Y, Radius) || RedDoor.Hits(BoxX, BoxY, BoxHalf));
-        BlueOpen = BlueActive || BlueOpen && (BlueDoor.Hits(X, Y, Radius) || BlueDoor.Hits(BoxX, BoxY, BoxHalf));
+        BlueOpen = BlueActive || BlueMemory > 0 || BlueOpen && (BlueDoor.Hits(X, Y, Radius) || BlueDoor.Hits(BoxX, BoxY, BoxHalf));
     }
 
     private bool OnSwitch(float x, float y) => Distance(X, Y, x, y) <= 54
